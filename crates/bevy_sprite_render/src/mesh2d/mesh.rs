@@ -179,7 +179,7 @@ pub fn check_views_need_specialization(
 
 pub fn init_batched_instance_buffer(mut commands: Commands, render_device: Res<RenderDevice>) {
     commands.insert_resource(BatchedInstanceBuffer::<Mesh2dUniform>::new(
-        &render_device.limits(),
+        render_device.limits(),
     ));
 }
 
@@ -190,7 +190,7 @@ pub(crate) fn load_mesh2d_bindings(
     let mut mesh_bindings_shader_defs = Vec::with_capacity(1);
 
     if let Some(per_object_buffer_batch_size) =
-        GpuArrayBuffer::<Mesh2dUniform>::batch_size(&render_device.limits())
+        GpuArrayBuffer::<Mesh2dUniform>::batch_size(render_device.limits())
     {
         mesh_bindings_shader_defs.push(ShaderDefVal::UInt(
             "PER_OBJECT_BUFFER_BATCH_SIZE".into(),
@@ -198,7 +198,7 @@ pub(crate) fn load_mesh2d_bindings(
         ));
     }
 
-    if bevy_render::storage_buffers_are_unsupported(&render_device.limits()) {
+    if bevy_render::storage_buffers_are_unsupported(render_device.limits()) {
         mesh_bindings_shader_defs.push("METADATA_USE_UNIFORM_BUFFERS".into());
     }
 
@@ -478,7 +478,7 @@ pub fn init_mesh_2d_pipeline(
             ShaderStages::VERTEX_FRAGMENT,
             (
                 GpuArrayBuffer::<Mesh2dUniform>::binding_layout(&limits),
-                if bevy_render::storage_buffers_are_unsupported(&limits) {
+                if bevy_render::storage_buffers_are_unsupported(limits) {
                     uniform_buffer_sized(false, BufferSize::new(size_of::<MeshMetadata>() as u64))
                 } else {
                     storage_buffer_read_only::<MeshMetadata>(false)
@@ -491,7 +491,7 @@ pub fn init_mesh_2d_pipeline(
         view_layout,
         mesh_layout,
         per_object_buffer_batch_size: GpuArrayBuffer::<Mesh2dUniform>::batch_size(
-            &render_device.limits(),
+            render_device.limits(),
         ),
         shader: load_embedded_asset!(asset_server.as_ref(), "mesh2d.wesl"),
     });
