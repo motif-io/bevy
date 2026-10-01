@@ -124,7 +124,7 @@ mod entry {
         binding: u32,
         buffer: &'a Buffer,
     ) -> BindGroupEntry<'a> {
-        let size = if skin::skins_use_uniform_buffers(&render_device.limits()) {
+        let size = if skin::skins_use_uniform_buffers(render_device.limits()) {
             Some(JOINT_BUFFER_SIZE as u64)
         } else {
             None
@@ -136,7 +136,7 @@ mod entry {
         binding: u32,
         buffer: &'a Buffer,
     ) -> BindGroupEntry<'a> {
-        if skin::skins_use_uniform_buffers(&render_device.limits()) {
+        if skin::skins_use_uniform_buffers(render_device.limits()) {
             entry(binding, Some(MORPH_BUFFER_SIZE as u64), buffer)
         } else {
             entry(binding, None, buffer)
@@ -252,7 +252,7 @@ impl MeshLayouts {
             "mesh_layout",
             &BindGroupLayoutEntries::single(
                 ShaderStages::empty(),
-                layout_entry::model(&render_device.limits()),
+                layout_entry::model(render_device.limits()),
             ),
         )
     }
@@ -264,9 +264,9 @@ impl MeshLayouts {
             &BindGroupLayoutEntries::with_indices(
                 ShaderStages::VERTEX,
                 (
-                    (0, layout_entry::model(&render_device.limits())),
+                    (0, layout_entry::model(render_device.limits())),
                     // The current frame's joint matrix buffer.
-                    (1, layout_entry::skinning(&render_device.limits())),
+                    (1, layout_entry::skinning(render_device.limits())),
                 ),
             ),
         )
@@ -280,11 +280,11 @@ impl MeshLayouts {
             &BindGroupLayoutEntries::with_indices(
                 ShaderStages::VERTEX,
                 (
-                    (0, layout_entry::model(&render_device.limits())),
+                    (0, layout_entry::model(render_device.limits())),
                     // The current frame's joint matrix buffer.
-                    (1, layout_entry::skinning(&render_device.limits())),
+                    (1, layout_entry::skinning(render_device.limits())),
                     // The previous frame's joint matrix buffer.
-                    (6, layout_entry::skinning(&render_device.limits())),
+                    (6, layout_entry::skinning(render_device.limits())),
                 ),
             ),
         )
@@ -298,16 +298,16 @@ impl MeshLayouts {
 
         entries.extend(
             [
-                (0, layout_entry::model(&limits)),
+                (0, layout_entry::model(limits)),
                 // The current frame's morph weight buffer.
-                (2, layout_entry::weights(&limits)),
-                (3, layout_entry::targets(&limits)),
+                (2, layout_entry::weights(limits)),
+                (3, layout_entry::targets(limits)),
             ]
             .iter()
             .map(|(binding, entry)| entry.build(*binding, ShaderStages::VERTEX)),
         );
 
-        if !skin::skins_use_uniform_buffers(&render_device.limits()) {
+        if !skin::skins_use_uniform_buffers(render_device.limits()) {
             entries.push(layout_entry::morph_descriptors().build(8, ShaderStages::VERTEX));
         }
 
@@ -323,18 +323,18 @@ impl MeshLayouts {
 
         entries.extend(
             [
-                (0, layout_entry::model(&limits)),
+                (0, layout_entry::model(limits)),
                 // The current frame's morph weight buffer.
-                (2, layout_entry::weights(&limits)),
-                (3, layout_entry::targets(&limits)),
+                (2, layout_entry::weights(limits)),
+                (3, layout_entry::targets(limits)),
                 // The previous frame's morph weight buffer.
-                (7, layout_entry::weights(&limits)),
+                (7, layout_entry::weights(limits)),
             ]
             .iter()
             .map(|(binding, entry)| entry.build(*binding, ShaderStages::VERTEX)),
         );
 
-        if !skin::skins_use_uniform_buffers(&render_device.limits()) {
+        if !skin::skins_use_uniform_buffers(render_device.limits()) {
             entries.push(layout_entry::morph_descriptors().build(8, ShaderStages::VERTEX));
         }
 
@@ -350,18 +350,18 @@ impl MeshLayouts {
 
         entries.extend(
             [
-                (0, layout_entry::model(&limits)),
+                (0, layout_entry::model(limits)),
                 // The current frame's joint matrix buffer.
-                (1, layout_entry::skinning(&limits)),
+                (1, layout_entry::skinning(limits)),
                 // The current frame's morph weight buffer.
-                (2, layout_entry::weights(&limits)),
-                (3, layout_entry::targets(&limits)),
+                (2, layout_entry::weights(limits)),
+                (3, layout_entry::targets(limits)),
             ]
             .iter()
             .map(|(binding, entry)| entry.build(*binding, ShaderStages::VERTEX)),
         );
 
-        if !skin::skins_use_uniform_buffers(&render_device.limits()) {
+        if !skin::skins_use_uniform_buffers(render_device.limits()) {
             entries.push(layout_entry::morph_descriptors().build(8, ShaderStages::VERTEX));
         }
 
@@ -377,22 +377,22 @@ impl MeshLayouts {
 
         entries.extend(
             [
-                (0, layout_entry::model(&limits)),
+                (0, layout_entry::model(limits)),
                 // The current frame's joint matrix buffer.
-                (1, layout_entry::skinning(&limits)),
+                (1, layout_entry::skinning(limits)),
                 // The current frame's morph weight buffer.
-                (2, layout_entry::weights(&limits)),
-                (3, layout_entry::targets(&limits)),
+                (2, layout_entry::weights(limits)),
+                (3, layout_entry::targets(limits)),
                 // The previous frame's joint matrix buffer.
-                (6, layout_entry::skinning(&limits)),
+                (6, layout_entry::skinning(limits)),
                 // The previous frame's morph weight buffer.
-                (7, layout_entry::weights(&limits)),
+                (7, layout_entry::weights(limits)),
             ]
             .iter()
             .map(|(binding, entry)| entry.build(*binding, ShaderStages::VERTEX)),
         );
 
-        if !skin::skins_use_uniform_buffers(&render_device.limits()) {
+        if !skin::skins_use_uniform_buffers(render_device.limits()) {
             entries.push(layout_entry::morph_descriptors().build(8, ShaderStages::VERTEX));
         }
 
@@ -409,7 +409,7 @@ impl MeshLayouts {
                 &BindGroupLayoutEntries::with_indices(
                     ShaderStages::VERTEX,
                     (
-                        (0, layout_entry::model(&render_device.limits())),
+                        (0, layout_entry::model(render_device.limits())),
                         (4, layout_entry::lightmaps_texture_view_array()),
                         (5, layout_entry::lightmaps_sampler_array()),
                     ),
@@ -421,7 +421,7 @@ impl MeshLayouts {
                 &BindGroupLayoutEntries::with_indices(
                     ShaderStages::VERTEX,
                     (
-                        (0, layout_entry::model(&render_device.limits())),
+                        (0, layout_entry::model(render_device.limits())),
                         (4, layout_entry::lightmaps_texture_view()),
                         (5, layout_entry::lightmaps_sampler()),
                     ),

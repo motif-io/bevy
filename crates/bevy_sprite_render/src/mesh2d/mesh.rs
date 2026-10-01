@@ -176,7 +176,7 @@ pub fn check_views_need_specialization(
 
 pub fn init_batched_instance_buffer(mut commands: Commands, render_device: Res<RenderDevice>) {
     commands.insert_resource(BatchedInstanceBuffer::<Mesh2dUniform>::new(
-        &render_device.limits(),
+        render_device.limits(),
     ));
 }
 
@@ -184,7 +184,7 @@ fn load_mesh2d_bindings(render_device: Res<RenderDevice>, asset_server: Res<Asse
     let mut mesh_bindings_shader_defs = Vec::with_capacity(1);
 
     if let Some(per_object_buffer_batch_size) =
-        GpuArrayBuffer::<Mesh2dUniform>::batch_size(&render_device.limits())
+        GpuArrayBuffer::<Mesh2dUniform>::batch_size(render_device.limits())
     {
         mesh_bindings_shader_defs.push(ShaderDefVal::UInt(
             "PER_OBJECT_BUFFER_BATCH_SIZE".into(),
@@ -339,7 +339,7 @@ pub fn init_mesh_2d_pipeline(
         "mesh2d_layout",
         &BindGroupLayoutEntries::single(
             ShaderStages::VERTEX_FRAGMENT,
-            GpuArrayBuffer::<Mesh2dUniform>::binding_layout(&render_device.limits()),
+            GpuArrayBuffer::<Mesh2dUniform>::binding_layout(render_device.limits()),
         ),
     );
 
@@ -347,7 +347,7 @@ pub fn init_mesh_2d_pipeline(
         view_layout,
         mesh_layout,
         per_object_buffer_batch_size: GpuArrayBuffer::<Mesh2dUniform>::batch_size(
-            &render_device.limits(),
+            render_device.limits(),
         ),
         shader: load_embedded_asset!(asset_server.as_ref(), "mesh2d.wgsl"),
     });
