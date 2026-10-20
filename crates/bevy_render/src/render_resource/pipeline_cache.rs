@@ -253,7 +253,7 @@ impl PipelineCache {
         Self {
             shader_cache: Arc::new(Mutex::new(ShaderCache::new(
                 device.clone(),
-                device.features(),
+                *device.features(),
                 render_adapter.get_downlevel_capabilities().flags,
                 load_module,
             ))),
