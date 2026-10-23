@@ -116,7 +116,11 @@ struct Immediates {
     array<LatePreprocessWorkItemIndirectParameters>;
 #endif  // LATE_PHASE
 
+#ifdef UNIFORM_IMMEDIATES
+@group(1) @binding(0) var<uniform> immediates: Immediates;
+#else
 var<immediate> immediates: Immediates;
+#endif
 #endif  // OCCLUSION_CULLING
 
 #ifdef FRUSTUM_CULLING

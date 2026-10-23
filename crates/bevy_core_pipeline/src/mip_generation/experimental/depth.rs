@@ -32,7 +32,7 @@ use bevy_render::{
         SamplerBindingType, SamplerDescriptor, ShaderStages, SpecializedComputePipeline,
         SpecializedComputePipelines, StorageTextureAccess, TextureAspect, TextureDescriptor,
         TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView,
-        TextureViewDescriptor, TextureViewDimension,
+        TextureViewDescriptor, TextureViewDimension, U32Immediates,
     },
     renderer::{RenderContext, RenderDevice, ViewQuery},
     texture::TextureCache,
@@ -261,6 +261,8 @@ pub struct DownsampleDepthPipeline {
     pub pipeline_id: Option<CachedComputePipelineId>,
     /// The shader asset handle.
     shader: Handle<Shader>,
+    /// Parameter transport selected for this device.
+    parameters: U32Immediates,
 }
 
 impl DownsampleDepthPipeline {
@@ -272,11 +274,13 @@ impl DownsampleDepthPipeline {
     fn new(
         bind_group_layout: BindGroupLayoutDescriptor,
         shader: Handle<Shader>,
+        render_device: &RenderDevice,
     ) -> DownsampleDepthPipeline {
         DownsampleDepthPipeline {
             bind_group_layout,
             pipeline_id: None,
             shader,
+            parameters: U32Immediates::new(render_device),
         }
     }
 }
@@ -342,18 +346,22 @@ pub fn create_downsample_depth_pipelines(
         first: DownsampleDepthPipeline::new(
             standard_bind_group_layout.clone(),
             downsample_depth_shader.depth.clone(),
+            &render_device,
         ),
         second: DownsampleDepthPipeline::new(
             standard_bind_group_layout.clone(),
             downsample_depth_shader.depth.clone(),
+            &render_device,
         ),
         first_multisample: DownsampleDepthPipeline::new(
             multisampled_bind_group_layout.clone(),
             downsample_depth_shader.depth.clone(),
+            &render_device,
         ),
         second_multisample: DownsampleDepthPipeline::new(
             multisampled_bind_group_layout.clone(),
             downsample_depth_shader.depth.clone(),
+            &render_device,
         ),
         sampler,
     };
@@ -464,7 +472,7 @@ impl SpecializedComputePipeline for DownsampleDepthPipeline {
         )
         .into();
 
-        ComputePipelineDescriptor {
+        let mut descriptor = ComputePipelineDescriptor {
             label: Some(label),
             layout: vec![self.bind_group_layout.clone()],
             immediate_size: 4,
@@ -476,7 +484,9 @@ impl SpecializedComputePipeline for DownsampleDepthPipeline {
                 "downsample_depth_first".into()
             }),
             ..default()
-        }
+        };
+        self.parameters.configure_pipeline(&mut descriptor);
+        descriptor
     }
 }
 
@@ -532,6 +542,7 @@ pub fn create_depth_pyramid_dummy_texture(
 /// This will only be present on a view when occlusion culling is enabled.
 #[derive(Component)]
 pub struct ViewDepthPyramid {
+    u32_immediates: U32Immediates,
     /// A texture view containing the entire depth texture.
     pub all_mips: TextureView,
     /// A series of texture views containing one mip level each.
@@ -601,7 +612,10 @@ impl ViewDepthPyramid {
         // Create the view for the depth pyramid as a whole.
         let depth_pyramid_all_mips = depth_pyramid.default_view.clone();
 
+        let mut u32_immediates = U32Immediates::new(render_device);
+        u32_immediates.reserve(render_device, depth_pyramid_mip_count + 1);
         Self {
+            u32_immediates,
             all_mips: depth_pyramid_all_mips,
             mips: depth_pyramid_mips,
             mip_count: depth_pyramid_mip_count,
@@ -674,8 +688,8 @@ impl ViewDepthPyramid {
             timestamp_writes: None,
         });
         downsample_pass.set_pipeline(downsample_depth_first_pipeline);
-        // Pass the mip count as an immediate, for simplicity.
-        downsample_pass.set_immediates(0, &self.mip_count.to_le_bytes());
+        self.u32_immediates
+            .set(&mut downsample_pass, self.mip_count);
         downsample_pass.set_bind_group(0, downsample_depth_bind_group, &[]);
         downsample_pass.dispatch_workgroups(
             virtual_view_size.x.div_ceil(64),

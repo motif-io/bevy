@@ -1339,7 +1339,7 @@ impl FromWorld for GpuPreprocessingSupport {
 
         let culling_feature_support = device
             .features()
-            .contains(Features::INDIRECT_FIRST_INSTANCE | Features::IMMEDIATES);
+            .contains(Features::INDIRECT_FIRST_INSTANCE);
         // Depth downsampling for occlusion culling requires 12 textures
         // and the early occlusion culling pass requires 10 storage buffers
         let limit_support = device.limits().max_storage_textures_per_shader_stage >= 12 &&
