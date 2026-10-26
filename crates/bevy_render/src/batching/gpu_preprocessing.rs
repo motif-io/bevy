@@ -1341,7 +1341,6 @@ impl FromWorld for GpuPreprocessingSupport {
             .features()
             .contains(Features::INDIRECT_FIRST_INSTANCE);
         // The early occlusion culling pass requires 10 storage buffers.
-        // Depth downsampling has a fallback for devices with fewer than 12 storage textures.
         let limit_support = device.limits().max_storage_buffers_per_shader_stage >= 10 &&
             // Even if the adapter supports compute, we might be simulating a lack of
             // compute via device limits (see `WgpuSettingsPriority::WebGL2` and

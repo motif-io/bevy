@@ -33,7 +33,7 @@ use bevy_render::{
         SamplerBindingType, SamplerDescriptor, ShaderStages, SpecializedComputePipeline,
         SpecializedComputePipelines, StorageTextureAccess, TextureAspect, TextureDescriptor,
         TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView,
-        TextureViewDescriptor, TextureViewDimension, U32Immediates,
+        TextureViewDescriptor, TextureViewDimension, TinyU32Immediates,
     },
     renderer::{RenderContext, RenderDevice, ViewQuery},
     texture::TextureCache,
@@ -278,7 +278,7 @@ pub struct DownsampleDepthPipeline {
     /// The shader asset handle.
     shader: Handle<Shader>,
     /// Parameter transport selected for this device.
-    parameters: U32Immediates,
+    parameters: TinyU32Immediates,
 }
 
 impl DownsampleDepthPipeline {
@@ -296,7 +296,7 @@ impl DownsampleDepthPipeline {
             bind_group_layout,
             pipeline_id: None,
             shader,
-            parameters: U32Immediates::new(render_device),
+            parameters: TinyU32Immediates::new(render_device),
         }
     }
 }
@@ -569,7 +569,7 @@ pub fn create_depth_pyramid_dummy_texture(
 /// This will only be present on a view when occlusion culling is enabled.
 #[derive(Component)]
 pub struct ViewDepthPyramid {
-    u32_immediates: U32Immediates,
+    u32_immediates: TinyU32Immediates,
     /// A texture view containing the entire depth texture.
     pub all_mips: TextureView,
     /// A series of texture views containing one mip level each.
@@ -639,7 +639,7 @@ impl ViewDepthPyramid {
         // Create the view for the depth pyramid as a whole.
         let depth_pyramid_all_mips = depth_pyramid.default_view.clone();
 
-        let mut u32_immediates = U32Immediates::new(render_device);
+        let mut u32_immediates = TinyU32Immediates::new(render_device);
         u32_immediates.reserve(render_device, depth_pyramid_mip_count + 1);
         Self {
             u32_immediates,

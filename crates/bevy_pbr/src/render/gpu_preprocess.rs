@@ -55,8 +55,8 @@ use bevy_render::{
         ComputePassDescriptor, ComputePipelineDescriptor, DynamicBindGroupLayoutEntries,
         PartialBufferVec, PipelineCache, RawBufferVec, ShaderStages, ShaderType,
         SparseBufferUpdateBindGroups, SparseBufferUpdateJobs, SparseBufferUpdatePipelines,
-        SpecializedComputePipeline, SpecializedComputePipelines, TextureSampleType, U32Immediates,
-        UninitBufferVec,
+        SpecializedComputePipeline, SpecializedComputePipelines, TextureSampleType,
+        TinyU32Immediates, UninitBufferVec,
     },
     renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery},
     settings::WgpuFeatures,
@@ -95,7 +95,7 @@ pub struct GpuMeshPreprocessPlugin {
 /// parameter building passes.
 #[derive(Resource)]
 pub struct PreprocessPipelines {
-    u32_immediates: U32Immediates,
+    u32_immediates: TinyU32Immediates,
     /// The pipeline used for CPU culling. This pipeline doesn't populate
     /// indirect parameter metadata.
     pub direct_preprocess: PreprocessPipeline,
@@ -161,7 +161,7 @@ pub struct PreprocessPipeline {
     /// The shader asset handle.
     pub shader: Handle<Shader>,
     /// Parameter transport selected for this device.
-    parameters: U32Immediates,
+    parameters: TinyU32Immediates,
     /// The pipeline ID for the compute shader.
     ///
     /// This gets filled in `prepare_preprocess_pipelines`.
@@ -1264,7 +1264,7 @@ impl SpecializedComputePipeline for PreprocessPipeline {
 impl FromWorld for PreprocessPipelines {
     fn from_world(world: &mut World) -> Self {
         let device = world.resource::<RenderDevice>();
-        let u32_immediates = U32Immediates::new(device);
+        let u32_immediates = TinyU32Immediates::new(device);
         // GPU culling bind group parameters are a superset of those in the CPU
         // culling (direct) shader.
         let direct_bind_group_layout_entries = preprocess_direct_bind_group_layout_entries();
@@ -1372,25 +1372,25 @@ impl FromWorld for PreprocessPipelines {
                 bind_group_layout: direct_bind_group_layout,
                 shader: preprocess_shader.clone(),
                 pipeline_id: None,
-                parameters: U32Immediates::new(device),
+                parameters: TinyU32Immediates::new(device),
             },
             gpu_frustum_culling_preprocess: PreprocessPipeline {
                 bind_group_layout: gpu_frustum_culling_bind_group_layout,
                 shader: preprocess_shader.clone(),
                 pipeline_id: None,
-                parameters: U32Immediates::new(device),
+                parameters: TinyU32Immediates::new(device),
             },
             early_gpu_occlusion_culling_preprocess: PreprocessPipeline {
                 bind_group_layout: gpu_early_occlusion_culling_bind_group_layout,
                 shader: preprocess_shader.clone(),
                 pipeline_id: None,
-                parameters: U32Immediates::new(device),
+                parameters: TinyU32Immediates::new(device),
             },
             late_gpu_occlusion_culling_preprocess: PreprocessPipeline {
                 bind_group_layout: gpu_late_occlusion_culling_bind_group_layout,
                 shader: preprocess_shader,
                 pipeline_id: None,
-                parameters: U32Immediates::new(device),
+                parameters: TinyU32Immediates::new(device),
             },
             gpu_frustum_culling_build_indexed_indirect_params: BuildIndirectParametersPipeline {
                 bind_group_layout: build_indexed_indirect_params_bind_group_layout.clone(),
