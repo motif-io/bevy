@@ -43,19 +43,26 @@ struct MeshCullingData {
     aabb_half_extents: vec4<f32>,
 }
 
+// Late preprocessing only reads counters; WebGPU forbids atomics in read-only storage.
+#ifdef LATE_PHASE
+alias LatePreprocessCounter = u32;
+#else
+alias LatePreprocessCounter = atomic<u32>;
+#endif
+
 // The parameters for the indirect compute dispatch for the late mesh
 // preprocessing phase.
 struct LatePreprocessWorkItemIndirectParameters {
     // The number of workgroups we're going to dispatch.
     //
     // This value should always be equal to `ceil(work_item_count / 64)`.
-    dispatch_x: atomic<u32>,
+    dispatch_x: LatePreprocessCounter,
     // The number of workgroups in the Y direction; always 1.
     dispatch_y: u32,
     // The number of workgroups in the Z direction; always 1.
     dispatch_z: u32,
     // The precise number of work items.
-    work_item_count: atomic<u32>,
+    work_item_count: LatePreprocessCounter,
     // Padding.
     //
     // This isn't the usual structure padding; it's needed because some hardware
@@ -116,7 +123,11 @@ struct Immediates {
     array<LatePreprocessWorkItemIndirectParameters>;
 #endif  // LATE_PHASE
 
+#ifdef UNIFORM_IMMEDIATES
+@group(1) @binding(0) var<uniform> immediates: Immediates;
+#else
 var<immediate> immediates: Immediates;
+#endif
 #endif  // OCCLUSION_CULLING
 
 #ifdef FRUSTUM_CULLING
@@ -162,8 +173,8 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let instance_index = global_invocation_id.x;
 
 #ifdef LATE_PHASE
-    if (instance_index >= atomicLoad(&late_preprocess_work_item_indirect_parameters[
-            immediates.late_preprocess_work_item_indirect_offset].work_item_count)) {
+    if (instance_index >= late_preprocess_work_item_indirect_parameters[
+            immediates.late_preprocess_work_item_indirect_offset].work_item_count) {
         return;
     }
 #else   // LATE_PHASE
@@ -263,10 +274,10 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let aabb_half_extents = mesh_culling_data[input_index].aabb_half_extents.xyz;
 
     // Initialize the AABB and the maximum depth.
-    let infinity = bitcast<f32>(0x7f800000u);
-    let neg_infinity = bitcast<f32>(0xff800000u);
-    var aabb = vec4(infinity, infinity, neg_infinity, neg_infinity);
-    var max_depth_view = neg_infinity;
+    // WebGPU rejects non-finite constant expressions.
+    let max_f32 = bitcast<f32>(0x7f7fffffu);
+    var aabb = vec4(max_f32, max_f32, -max_f32, -max_f32);
+    var max_depth_view = -max_f32;
 
     // Build up the AABB by taking each corner of this mesh's OBB, transforming
     // it, and updating the AABB and depth accordingly.
