@@ -52,6 +52,7 @@ use bevy_render::{
     Extract, ExtractSchedule, GpuResourceAppExt, Render, RenderApp, RenderStartup, RenderSystems,
 };
 use bevy_shader::{Shader, ShaderDefVal, ShaderRef};
+use bevy_transform::prelude::{GlobalTransform, TransformSystems};
 use bevy_utils::Parallel;
 use core::{hash::Hash, marker::PhantomData};
 use derive_more::derive::From;
@@ -284,7 +285,12 @@ where
             .add_plugins(RenderAssetPlugin::<PreparedMaterial2d<M>, GpuImage>::default())
             .add_systems(
                 PostUpdate,
-                check_entities_needing_specialization::<M>.after(AssetEventSystems),
+                // After propagation, a parent move is visible as a `GlobalTransform`
+                // change in the same frame. Transparent phase items cache their sort
+                // key at queue time, so that change has to be queued before the frame ends.
+                check_entities_needing_specialization::<M>
+                    .after(AssetEventSystems)
+                    .after(TransformSystems::Propagate),
             );
 
         if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
@@ -674,6 +680,10 @@ impl<M> Default for SpecializedMaterial2dViewPipelineCache<M> {
 
 /// Finds 2D entities that have changed in such a way as to potentially require
 /// specialization and adds them to the [`EntitiesNeedingSpecialization`] list.
+///
+/// A [`GlobalTransform`] change does not alter the specialized pipeline. It is
+/// included because transparent phase items store a depth sort key when they are
+/// queued, and that key is rebuilt only when the entity is queued again.
 pub fn check_entities_needing_specialization<M>(
     needs_specialization: Query<
         Entity,
@@ -683,6 +693,7 @@ pub fn check_entities_needing_specialization<M>(
                 AssetChanged<Mesh2d>,
                 Changed<MeshMaterial2d<M>>,
                 AssetChanged<MeshMaterial2d<M>>,
+                Changed<GlobalTransform>,
             )>,
             With<MeshMaterial2d<M>>,
         ),
@@ -1173,5 +1184,112 @@ impl<M: Material2d> RenderAsset for PreparedMaterial2d<M> {
             }
             Err(other) => Err(PrepareAssetError::AsBindGroupError(other)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy_app::{App, PostUpdate, TaskPoolPlugin};
+    use bevy_asset::{AssetApp, AssetEventSystems, AssetPlugin};
+    use bevy_ecs::schedule::IntoScheduleConfigs;
+    use bevy_ecs::{entity::Entity, hierarchy::ChildOf};
+    use bevy_math::Vec3;
+    use bevy_mesh::{Mesh, Mesh2d};
+    use bevy_transform::{
+        components::{GlobalTransform, Transform},
+        TransformPlugin, TransformSystems,
+    };
+
+    use super::{check_entities_needing_specialization, MeshMaterial2d};
+    use crate::{ColorMaterial, EntitiesNeedingSpecialization};
+
+    fn app() -> App {
+        let mut app = App::new();
+        app.add_plugins((
+            TaskPoolPlugin::default(),
+            AssetPlugin::default(),
+            TransformPlugin,
+        ))
+        .init_asset::<Mesh>()
+        .init_asset::<ColorMaterial>()
+        .init_resource::<EntitiesNeedingSpecialization<ColorMaterial>>()
+        .add_systems(
+            PostUpdate,
+            check_entities_needing_specialization::<ColorMaterial>
+                .after(AssetEventSystems)
+                .after(TransformSystems::Propagate),
+        );
+        app
+    }
+
+    fn listed(app: &App) -> &[Entity] {
+        &app.world()
+            .resource::<EntitiesNeedingSpecialization<ColorMaterial>>()
+            .changed
+    }
+
+    fn settle(app: &mut App) {
+        app.update();
+        app.update();
+        assert!(
+            listed(app).is_empty(),
+            "spawn changes should be consumed before the transform change"
+        );
+    }
+
+    #[test]
+    fn direct_global_transform_change_requeues_mesh() {
+        let mut app = app();
+        let mesh = app
+            .world_mut()
+            .spawn((
+                Mesh2d::default(),
+                MeshMaterial2d::<ColorMaterial>::default(),
+            ))
+            .id();
+        settle(&mut app);
+
+        *app.world_mut().get_mut::<GlobalTransform>(mesh).unwrap() =
+            GlobalTransform::from_translation(Vec3::new(0.0, 0.0, 4.0));
+        app.update();
+
+        assert!(listed(&app).contains(&mesh));
+
+        app.update();
+        assert!(listed(&app).is_empty());
+    }
+
+    #[test]
+    fn parent_transform_change_requeues_child_mesh() {
+        let mut app = app();
+        let parent = app.world_mut().spawn(Transform::default()).id();
+        let moved = app
+            .world_mut()
+            .spawn((
+                Mesh2d::default(),
+                MeshMaterial2d::<ColorMaterial>::default(),
+                ChildOf(parent),
+            ))
+            .id();
+        let stationary_parent = app.world_mut().spawn(Transform::default()).id();
+        let stationary = app
+            .world_mut()
+            .spawn((
+                Mesh2d::default(),
+                MeshMaterial2d::<ColorMaterial>::default(),
+                ChildOf(stationary_parent),
+            ))
+            .id();
+        settle(&mut app);
+
+        app.world_mut()
+            .get_mut::<Transform>(parent)
+            .unwrap()
+            .translation = Vec3::new(1.0, 2.0, 3.0);
+        app.update();
+
+        let listed = listed(&app);
+        assert!(listed.contains(&moved));
+        assert!(!listed.contains(&stationary));
     }
 }
