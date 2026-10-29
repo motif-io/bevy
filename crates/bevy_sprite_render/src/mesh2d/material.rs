@@ -684,6 +684,8 @@ impl<M> Default for SpecializedMaterial2dViewPipelineCache<M> {
 /// A [`GlobalTransform`] change does not alter the specialized pipeline. It is
 /// included because transparent phase items store a depth sort key when they are
 /// queued, and that key is rebuilt only when the entity is queued again.
+///
+/// Upstream: <https://github.com/bevyengine/bevy/pull/26371>.
 pub fn check_entities_needing_specialization<M>(
     needs_specialization: Query<
         Entity,

@@ -844,6 +844,8 @@ pub struct SpecializedMaterialViewPipelineCache {
 /// mesh center when they are queued, and that center is rebuilt only when the
 /// entity is queued again. The pipeline cache still returns the existing
 /// pipeline.
+///
+/// Upstream: <https://github.com/bevyengine/bevy/pull/26371>.
 pub fn check_entities_needing_specialization<M>(
     needs_specialization: Query<
         Entity,
