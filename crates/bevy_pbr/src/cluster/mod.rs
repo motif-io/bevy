@@ -250,6 +250,9 @@ pub struct ViewClusterBindings {
     n_indices: usize,
     n_offsets: usize,
     buffers: ViewClusterBuffers,
+    /// Capacity of reusable, zero-filled bindings for GPU clustering, if no
+    /// clusterable objects were present when these bindings were prepared.
+    empty_cluster_count: Option<usize>,
 }
 
 pub fn init_global_clusterable_object_meta(
@@ -311,6 +314,7 @@ impl GpuClusteredLights {
         render_device: &RenderDevice,
         render_queue: &RenderQueue,
     ) {
+        let light_count = self.data.len();
         if self.is_storage_buffer {
             if self.data.is_empty() {
                 self.data.push(GpuClusteredLight::default());
@@ -322,6 +326,10 @@ impl GpuClusteredLights {
         }
 
         self.data.write_buffer(render_device, render_queue);
+
+        // Padding makes the GPU binding valid, but isn't a real light. Keep
+        // the CPU list's length accurate for clustering and subsequent adds.
+        self.data.truncate(light_count);
     }
 
     pub fn binding(&self) -> Option<BindingResource<'_>> {
@@ -581,10 +589,12 @@ impl ViewClusterBindings {
             n_indices: 0,
             n_offsets: 0,
             buffers: ViewClusterBuffers::new(buffer_binding_type),
+            empty_cluster_count: None,
         }
     }
 
     pub fn clear(&mut self) {
+        self.empty_cluster_count = None;
         match &mut self.buffers {
             ViewClusterBuffers::Uniform {
                 clusterable_object_index_lists,

@@ -34,8 +34,8 @@ use crate::{
     occlusion_culling::OcclusionCulling,
     render_phase::{
         BinnedPhaseItem, BinnedRenderPhaseBatch, BinnedRenderPhaseBatchSet,
-        BinnedRenderPhaseBatchSets, CachedRenderPipelinePhaseItem, PhaseItem,
-        PhaseItemBatchSetKey as _, PhaseItemExtraIndex, RenderMultidrawableBatchSet,
+        BinnedRenderPhaseBatchSets, CachedRenderPipelinePhaseItem, GpuRenderBinnedMeshInstance,
+        PhaseItem, PhaseItemBatchSetKey as _, PhaseItemExtraIndex, RenderMultidrawableBatchSet,
         SortedPhaseItem, SortedRenderPhase, UnbatchableBinnedEntityIndices, ViewBinnedRenderPhases,
         ViewSortedRenderPhases,
     },
@@ -956,13 +956,11 @@ impl Default for GpuBinUnpackingMetadata {
 /// CPU-side information needed to construct the bind groups and issue the
 /// dispatch for the `unpack_bins` shader, for a single batch set.
 pub struct BinUnpackingJob {
-    /// The GPU buffer of `GpuRenderBinnedMeshInstance`s corresponding to the
-    /// mesh instances that this batch set contains.
-    pub render_binned_mesh_instance_buffer: Buffer,
-    /// The GPU buffer that maps each bin index to the index of the indirect
-    /// drawing parameters for that bin, relative to the first such indirect
-    /// drawing parameters for this batch set.
-    pub bin_index_to_indirect_parameters_offset_buffer: Buffer,
+    /// The byte range of this batch set's instances in the shared instance buffer.
+    pub instances_range: Range<u64>,
+    /// The byte range of this batch set's bin-to-indirect-parameters mapping in
+    /// the shared bin offsets buffer.
+    pub bin_offsets_range: Range<u64>,
     /// The index of this batch set's [`GpuBinUnpackingMetadata`] in the
     /// [`BinUnpackingBuffers::bin_unpacking_metadata`] buffer.
     pub bin_unpacking_metadata_index: BinUnpackingMetadataIndex,
@@ -1146,13 +1144,46 @@ impl Default for BinUnpackingBuffers {
 
 /// GPU buffers for the bin unpacking shader that are specific to each phase of
 /// each view.
-#[derive(Default)]
 pub struct ViewPhaseBinUnpackingBuffers {
+    /// Instances for all batch sets, with each job's range aligned for storage binding.
+    pub instances: RawBufferVec<GpuRenderBinnedMeshInstance>,
+    /// Bin offsets for all batch sets, with each job's range aligned for storage binding.
+    pub bin_offsets: RawBufferVec<u32>,
     /// Metadata that describes each unpacking job, specific to indexed meshes.
     pub indexed_unpacking_jobs: Vec<BinUnpackingJob>,
     /// Metadata that describes each unpacking job, specific to non-indexed
     /// meshes.
     pub non_indexed_unpacking_jobs: Vec<BinUnpackingJob>,
+}
+
+impl Default for ViewPhaseBinUnpackingBuffers {
+    fn default() -> Self {
+        let mut instances = RawBufferVec::new(BufferUsages::STORAGE);
+        instances.set_label(Some("bin unpacking instances"));
+        let mut bin_offsets = RawBufferVec::new(BufferUsages::STORAGE);
+        bin_offsets.set_label(Some("bin unpacking bin offsets"));
+        Self {
+            instances,
+            bin_offsets,
+            indexed_unpacking_jobs: Vec::new(),
+            non_indexed_unpacking_jobs: Vec::new(),
+        }
+    }
+}
+
+/// Appends a batch set's data and returns its storage-aligned byte range.
+/// Both bin input element types have power-of-two sizes, as does the alignment.
+fn append_bin_unpacking_data<T: Pod>(
+    buffer: &mut RawBufferVec<T>,
+    values: &[T],
+    alignment: usize,
+) -> Range<u64> {
+    let item_size = size_of::<T>();
+    let aligned_start = buffer.len().next_multiple_of(alignment.div_ceil(item_size));
+    let buffer_values = buffer.values_mut();
+    buffer_values.resize(aligned_start, T::zeroed());
+    buffer_values.extend_from_slice(values);
+    (aligned_start * item_size) as u64..(buffer_values.len() * item_size) as u64
 }
 
 /// A key used to look up the bin unpacking buffers for a specific phase of a
@@ -1339,11 +1370,9 @@ impl FromWorld for GpuPreprocessingSupport {
 
         let culling_feature_support = device
             .features()
-            .contains(Features::INDIRECT_FIRST_INSTANCE | Features::IMMEDIATES);
-        // Depth downsampling for occlusion culling requires 12 textures
-        // and the early occlusion culling pass requires 10 storage buffers
-        let limit_support = device.limits().max_storage_textures_per_shader_stage >= 12 &&
-            device.limits().max_storage_buffers_per_shader_stage >= 10 &&
+            .contains(Features::INDIRECT_FIRST_INSTANCE);
+        // The early occlusion culling pass requires 10 storage buffers.
+        let limit_support = device.limits().max_storage_buffers_per_shader_stage >= 10 &&
             // Even if the adapter supports compute, we might be simulating a lack of
             // compute via device limits (see `WgpuSettingsPriority::WebGL2` and
             // `wgpu::Limits::downlevel_webgl2_defaults()`). This will have set all the
@@ -2484,7 +2513,9 @@ pub fn write_binned_instance_buffers<BPI, GFBD>(
             })
             .or_default();
 
-        // Clear out the list of jobs.
+        // Repack the inputs while retaining the shared GPU buffers and CPU capacity.
+        view_phase_bin_unpacking_buffers.instances.clear();
+        view_phase_bin_unpacking_buffers.bin_offsets.clear();
         view_phase_bin_unpacking_buffers
             .indexed_unpacking_jobs
             .clear();
@@ -2527,9 +2558,8 @@ pub fn write_binned_instance_buffers<BPI, GFBD>(
 
         // Now loop over all the batch sets in the phase. Look up the
         // corresponding `BatchSetBinUnpackingMetadata`, and use it to prepare
-        // the `GpuBinUnpackingMetadata` and the `BinUnpackingJob`s. Also, kick
-        // off writes for all the associated GPU buffers that we'd been building
-        // up in earlier phases.
+        // the `GpuBinUnpackingMetadata` and the `BinUnpackingJob`s, packing the
+        // batch sets' input data into shared buffers.
         for (batch_set_key, batch_set) in view_binned_render_phase.multidrawable_meshes.iter_mut() {
             let Some(representative_entity) = batch_set.representative_entity() else {
                 continue;
@@ -2541,38 +2571,30 @@ pub fn write_binned_instance_buffers<BPI, GFBD>(
                 continue;
             };
 
-            // Write the various buffers to the GPU.
-
-            batch_set
+            let instances = batch_set
                 .gpu_buffers
                 .render_binned_mesh_instance_buffer
-                .write_buffer(&render_device, &render_queue);
-            batch_set
+                .values();
+            let bin_offsets = batch_set
                 .gpu_buffers
                 .bin_index_to_indirect_parameters_offset_buffer
-                .write_buffer(&render_device, &render_queue);
-
-            let (
-                Some(render_bin_entry_buffer),
-                Some(bin_index_to_indirect_parameters_offset_buffer),
-            ) = (
-                batch_set
-                    .gpu_buffers
-                    .render_binned_mesh_instance_buffer
-                    .buffer(),
-                batch_set
-                    .gpu_buffers
-                    .bin_index_to_indirect_parameters_offset_buffer
-                    .buffer(),
-            )
-            else {
+                .values();
+            if instances.is_empty() || bin_offsets.is_empty() {
                 continue;
-            };
+            }
 
-            let binned_mesh_instance_count = batch_set
-                .gpu_buffers
-                .render_binned_mesh_instance_buffer
-                .len() as u32;
+            let binned_mesh_instance_count = instances.len() as u32;
+            let alignment = render_device.limits().min_storage_buffer_offset_alignment as usize;
+            let instances_range = append_bin_unpacking_data(
+                &mut view_phase_bin_unpacking_buffers.instances,
+                instances,
+                alignment,
+            );
+            let bin_offsets_range = append_bin_unpacking_data(
+                &mut view_phase_bin_unpacking_buffers.bin_offsets,
+                bin_offsets,
+                alignment,
+            );
 
             // Build up the `GpuBinUnpackingMetadata` for this batch set.
             let gpu_bin_unpacking_metadata_index = bin_unpacking_buffers
@@ -2593,9 +2615,8 @@ pub fn write_binned_instance_buffers<BPI, GFBD>(
 
             // Create the [`BinUnpackingJob`].
             let job = BinUnpackingJob {
-                render_binned_mesh_instance_buffer: render_bin_entry_buffer.clone(),
-                bin_index_to_indirect_parameters_offset_buffer:
-                    bin_index_to_indirect_parameters_offset_buffer.clone(),
+                instances_range,
+                bin_offsets_range,
                 bin_unpacking_metadata_index: BinUnpackingMetadataIndex(
                     gpu_bin_unpacking_metadata_index,
                 ),
@@ -2612,6 +2633,15 @@ pub fn write_binned_instance_buffers<BPI, GFBD>(
                     .push(job);
             }
         }
+
+        // Each shared input buffer is uploaded once, regardless of the number
+        // of batch sets. Bind groups are prepared after any buffer reallocation.
+        view_phase_bin_unpacking_buffers
+            .instances
+            .write_buffer(&render_device, &render_queue);
+        view_phase_bin_unpacking_buffers
+            .bin_offsets
+            .write_buffer(&render_device, &render_queue);
     }
 
     // Delete buffers corresponding to dead views.
@@ -2740,6 +2770,71 @@ mod tests {
     struct TestData(u32);
 
     impl_atomic_pod!(TestData, TestDataBlob);
+
+    #[test]
+    fn bin_unpacking_ranges_preserve_batch_local_indices() {
+        for alignment in [4, 16, 256] {
+            let mut buffers = ViewPhaseBinUnpackingBuffers::default();
+            // Keep a hole in the first bin table: instance bin indices must not
+            // be renumbered when packing batch sets together.
+            let inputs = [
+                (vec![(17, 2), (5, 0)], vec![4, 0, 9]),
+                (vec![(23, 0)], vec![7]),
+                ((0..65).map(|i| (100 + i, 1)).collect(), vec![0, 3]),
+            ];
+            let mut ranges = Vec::new();
+            for (instances, offsets) in &inputs {
+                let instances: Vec<GpuRenderBinnedMeshInstance> = instances
+                    .iter()
+                    .map(|&(input, bin)| bytemuck::cast([input, bin]))
+                    .collect();
+                ranges.push((
+                    append_bin_unpacking_data(&mut buffers.instances, &instances, alignment),
+                    append_bin_unpacking_data(&mut buffers.bin_offsets, offsets, alignment),
+                ));
+            }
+
+            let instance_bytes = bytemuck::cast_slice::<_, u8>(buffers.instances.values());
+            let offset_bytes = bytemuck::cast_slice::<_, u8>(buffers.bin_offsets.values());
+            for ((instance_range, offset_range), (instances, offsets)) in ranges.iter().zip(&inputs)
+            {
+                assert_eq!(instance_range.start % alignment as u64, 0);
+                assert_eq!(offset_range.start % alignment as u64, 0);
+                let bound_instances: &[[u32; 2]] = bytemuck::cast_slice(
+                    &instance_bytes[instance_range.start as usize..instance_range.end as usize],
+                );
+                let bound_offsets: &[u32] = bytemuck::cast_slice(
+                    &offset_bytes[offset_range.start as usize..offset_range.end as usize],
+                );
+                // These are the two indices produced by unpack_bins.wgsl,
+                // before adding the unchanged per-batch metadata bases.
+                let unpacked: Vec<_> = bound_instances
+                    .iter()
+                    .map(|&[input, bin]| (input, bound_offsets[bin as usize]))
+                    .collect();
+                let expected: Vec<_> = instances
+                    .iter()
+                    .map(|&(input, bin)| (input, offsets[bin as usize]))
+                    .collect();
+                assert_eq!(unpacked, expected);
+            }
+            for pair in ranges.windows(2) {
+                assert!(pair[0].0.end <= pair[1].0.start);
+                assert!(pair[0].1.end <= pair[1].1.start);
+            }
+        }
+    }
+
+    #[test]
+    fn bin_unpacking_inputs_can_shrink_and_grow_between_frames() {
+        let mut buffer = RawBufferVec::new(BufferUsages::STORAGE);
+        for values in [vec![1u32; 65], vec![8], vec![], vec![42; 200]] {
+            buffer.clear();
+            let range = append_bin_unpacking_data(&mut buffer, &values, 256);
+            assert_eq!(range, 0..(values.len() * size_of::<u32>()) as u64);
+            assert_eq!(buffer.values(), &values);
+        }
+    }
 
     #[test]
     fn instance_buffer_correct_behavior() {

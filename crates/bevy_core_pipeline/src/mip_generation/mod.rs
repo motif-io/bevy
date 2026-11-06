@@ -63,6 +63,8 @@ pub struct DownsampleShaders {
     /// The experimental shader that downsamples depth
     /// (`downsample_depth.wgsl`).
     pub depth: Handle<Shader>,
+    /// The shader used by the two-mip depth fallback.
+    pub depth_2mips_fallback: Handle<Shader>,
     /// The shaders that perform downsampling of color textures.
     ///
     /// This table maps a [`TextureFormat`] to the shader that performs
@@ -279,6 +281,7 @@ impl Plugin for MipGenerationPlugin {
 
         let downsample_shaders = DownsampleShaders {
             depth: depth_shader,
+            depth_2mips_fallback: experimental::Depth2MipsFallback::load_shader(app),
             general: general_shaders,
         };
         app.insert_resource(downsample_shaders.clone());
