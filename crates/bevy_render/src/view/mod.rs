@@ -1208,9 +1208,14 @@ pub fn prepare_view_targets(
         &CameraMainTextureUsages,
         &Msaa,
     )>,
+    stale_view_targets: Query<Entity, (With<ViewTarget>, Without<ExtractedCamera>)>,
     view_target_attachments: Res<ViewTargetAttachments>,
     mut main_texture_atomics: Local<HashMap<MainTextureKey, Weak<AtomicUsize>>>,
 ) {
+    for entity in &stale_view_targets {
+        commands.entity(entity).remove::<ViewTarget>();
+    }
+
     main_texture_atomics.retain(|_, weak| weak.strong_count() > 0);
 
     let mut textures = <HashMap<_, _>>::default();
