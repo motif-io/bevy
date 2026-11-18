@@ -675,10 +675,10 @@ pub fn prepare_core_3d_depth_textures(
         &Camera3d,
         &Msaa,
     )>,
-    stale_depth_textures: Query<Entity, (With<ViewDepthTexture>, Without<ExtractedCamera>)>,
+    stale_depth_textures: Query<Entity, (With<ViewDepthStencilTexture>, Without<ExtractedCamera>)>,
 ) {
     for entity in &stale_depth_textures {
-        commands.entity(entity).remove::<ViewDepthTexture>();
+        commands.entity(entity).remove::<ViewDepthStencilTexture>();
     }
 
     let mut render_target_usage = <HashMap<_, _>>::default();
@@ -698,7 +698,7 @@ pub fn prepare_core_3d_depth_textures(
     let mut textures = <HashMap<_, _>>::default();
     for (entity, camera, _, camera_3d, msaa) in &views_3d {
         let Some(physical_target_size) = camera.physical_target_size else {
-            commands.entity(entity).remove::<ViewDepthTexture>();
+            commands.entity(entity).remove::<ViewDepthStencilTexture>();
             continue;
         };
 

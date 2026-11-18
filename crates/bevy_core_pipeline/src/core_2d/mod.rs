@@ -427,10 +427,10 @@ pub fn prepare_core_2d_depth_textures(
     transparent_2d_phases: Res<ViewSortedRenderPhases<Transparent2d>>,
     opaque_2d_phases: Res<ViewBinnedRenderPhases<Opaque2d>>,
     views_2d: Query<(Entity, &ExtractedCamera, &ExtractedView, &Msaa), (With<Camera2d>,)>,
-    stale_depth_textures: Query<Entity, (With<ViewDepthTexture>, Without<ExtractedCamera>)>,
+    stale_depth_textures: Query<Entity, (With<ViewDepthStencilTexture>, Without<ExtractedCamera>)>,
 ) {
     for entity in &stale_depth_textures {
-        commands.entity(entity).remove::<ViewDepthTexture>();
+        commands.entity(entity).remove::<ViewDepthStencilTexture>();
     }
 
     let mut textures = <HashMap<_, _>>::default();
@@ -442,7 +442,7 @@ pub fn prepare_core_2d_depth_textures(
         };
 
         let Some(physical_target_size) = camera.physical_target_size else {
-            commands.entity(view).remove::<ViewDepthTexture>();
+            commands.entity(view).remove::<ViewDepthStencilTexture>();
             continue;
         };
 
